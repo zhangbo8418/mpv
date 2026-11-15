@@ -261,7 +261,7 @@ test('gl-video', gl_video)
 
 gpu_dumb_headers = custom_target('gpu-dumb-headers',
     input: files('../video/out/gpu/video.c', '../video/out/gpu/utils.c',
-                 '../video/out/gpu/utils.h'),
+                 '../video/out/gpu/utils.h', '../video/mp_image.c'),
     depend_files: files('vo_android_frame.py'),
     output: ['vo_gpu_dumb_functions.h', 'vo_gpu_dumb_types.h'],
     command: [python, files('vo_gpu_dumb.py'), '--generate', '@OUTPUT0@'])
