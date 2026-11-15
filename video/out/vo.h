@@ -271,6 +271,7 @@ struct vo_extra {
     void (*wakeup_cb)(void *ctx);
     void *wakeup_ctx;
     bool prefer_hdr_output;
+    int64_t retained_video_wid; // Surface with a buffer from the previous VO
 };
 
 struct vo_frame {
@@ -602,6 +603,7 @@ bool vo_query_backend_error(struct vo *vo);
 bool vo_has_frame(struct vo *vo);
 bool vo_has_rendered_frame(struct vo *vo);
 bool vo_has_video_frame(struct vo *vo);
+int64_t vo_get_video_frame_wid(struct vo *vo);
 void vo_redraw(struct vo *vo);
 bool vo_want_redraw(struct vo *vo);
 // Wait for rendering and retire decoder outputs invalidated by a flush.

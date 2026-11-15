@@ -3,6 +3,7 @@
  */
 #undef NDEBUG
 #include <assert.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -23,6 +24,7 @@
 #define MPV_EVENT_VIDEO_RECONFIG 1
 #define MP_TIME_S_TO_NS(x) ((int64_t)((x) * 1000000000))
 #define MP_TIME_MS_TO_NS(x) ((int64_t)((x) * 1000000))
+#define MPMIN(a, b) ((a) < (b) ? (a) : (b))
 #define MPMAX(a, b) ((a) > (b) ? (a) : (b))
 #define mp_assert assert
 #define talloc_free free
@@ -55,7 +57,8 @@ struct vo_internal {
     bool hasframe, hasframe_rendered, has_video_frame, request_redraw;
     bool dropped_frame, paused, expecting_vsync, rendering, visible;
     int64_t video_wid, drop_count, delayed_count, prev_vsync;
-    int64_t flip_queue_offset, wakeup_pts;
+    int64_t flip_queue_offset, wakeup_pts, next_vsync_deadline;
+    bool queue_display_time_only;
     uint64_t current_frame_id;
     struct vo_frame *current_frame, *frame_queued;
     bool send_reset;
@@ -317,6 +320,7 @@ int main(void)
     opts.WinID = 11;
     read_opts(&vo);
     assert(!vo_has_video_frame(&vo));
+    assert(vo_get_video_frame_wid(&vo) == 0);
     opts.WinID = 0;
     read_opts(&vo);
     assert(handle_force_window(&ctx, true) == 0);
@@ -353,11 +357,34 @@ int main(void)
     free(state.current_frame);
     state.current_frame = NULL;
 
-    // A new VO has no eligibility even if it uses the same Surface identifier.
+    int64_t last_video_wid = vo_get_video_frame_wid(&vo);
+    assert(last_video_wid == 10);
+
+    // Unrelated outputs must still begin without a retained video buffer.
     struct vo_internal next_state = {0};
     vo.in = &next_state;
-    read_opts(&vo);
     assert(!vo_has_video_frame(&vo));
+    inherit_video_frame(&vo, 11);
+    assert(!vo_has_video_frame(&vo));
+    opts.android_keep_video_frame = false;
+    inherit_video_frame(&vo, last_video_wid);
+    assert(!vo_has_video_frame(&vo));
+    opts.android_keep_video_frame = true;
+
+    inherit_video_frame(&vo, last_video_wid);
+    read_opts(&vo);
+    assert(vo_get_video_frame_wid(&vo) == last_video_wid);
+    vo_reconfig(&vo, &params);
+    previous_flips = flips;
+    vo_redraw(&vo);
+    do_redraw(&vo);
+    assert(flips == previous_flips && submitted_channel == 2);
+    queue_video(&vo, &old_channel);
+    render_frame(&vo);
+    assert(flips == previous_flips + 1 && submitted_channel == 1);
+    free(next_state.current_frame);
+    next_state.current_frame = NULL;
+
     // force-window=no still tears down the output rather than retaining it.
     player_opts.force_vo = 0;
     assert(handle_force_window(&ctx, true) == 0 && !ctx.video_out);

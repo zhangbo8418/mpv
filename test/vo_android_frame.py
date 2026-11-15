@@ -27,7 +27,9 @@ def generate(root, output):
     vo = (root / "video/out/vo.c").read_text(encoding="utf-8")
     source = ""
     for name in ("read_opts", "forget_frames", "run_reconfig", "vo_queue_frame",
-                 "vo_seek_reset", "vo_has_video_frame", "render_frame", "do_redraw"):
+                 "vo_seek_reset", "inherit_video_frame", "vo_has_video_frame",
+                 "vo_get_video_frame_wid", "advance_vsyncs", "schedule_vsync_slot",
+                 "render_frame", "do_redraw"):
         source += function(vo, name)
     playloop = (root / "player/playloop.c").read_text(encoding="utf-8")
     source += function(playloop, "handle_force_window")
@@ -58,7 +60,7 @@ def main():
                      str(fixture), f"/Fe:{output}", f"/Fo:{work / 'test.obj'}"]
         else:
             flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(work),
-                     str(fixture), "-o", str(output)]
+                     str(fixture), "-o", str(output), "-lm"]
         subprocess.run(args.cc + flags + args.cflag, cwd=work, check=True)
         if not args.output:
             subprocess.run([str(output)], cwd=work, check=True)

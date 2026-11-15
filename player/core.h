@@ -712,8 +712,13 @@ bool should_use_android_direct_output(struct MPContext *mpctx,
 bool should_use_android_dolby_vision_direct_output(struct MPContext *mpctx,
                                                    struct track *track);
 bool is_android_dolby_vision_direct_output_active(struct MPContext *mpctx);
+int64_t get_android_retained_video_wid(struct MPContext *mpctx);
 void reinit_video_chain(struct MPContext *mpctx);
+void reinit_video_chain_with_retained_frame(struct MPContext *mpctx,
+                                            int64_t retained_video_wid);
 void reinit_video_chain_src(struct MPContext *mpctx, struct track *track);
+bool try_reinit_video_chain(struct MPContext *mpctx, struct track *track,
+                            int64_t retained_video_wid);
 int reinit_video_filters(struct MPContext *mpctx);
 void write_video(struct MPContext *mpctx);
 void mp_force_video_refresh(struct MPContext *mpctx);

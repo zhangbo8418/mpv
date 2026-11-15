@@ -221,16 +221,6 @@ err_out:
     return 0;
 }
 
-void reinit_video_chain(struct MPContext *mpctx)
-{
-    struct track *track = mpctx->current_track[0][STREAM_VIDEO];
-    if (!track || !track->stream) {
-        error_on_track(mpctx, track);
-        return;
-    }
-    reinit_video_chain_src(mpctx, track);
-}
-
 static void filter_update_subtitles(void *ctx, double pts)
 {
     struct MPContext *mpctx = ctx;
@@ -452,8 +442,25 @@ static bool is_android_opengl_output_active(struct MPContext *mpctx)
 }
 #endif
 
+int64_t get_android_retained_video_wid(struct MPContext *mpctx)
+{
+#if HAVE_ANDROID
+    const struct mp_vo_opts *opts = mpctx->opts->vo;
+    if (!mpctx->video_out || !mpctx->opts->force_vo ||
+        !opts->android_keep_video_frame || !opts->WinID || opts->WinID == -1)
+        return 0;
+
+    int64_t wid = vo_get_video_frame_wid(mpctx->video_out);
+    return wid == opts->WinID ? wid : 0;
+#else
+    return 0;
+#endif
+}
+
 // (track=NULL creates a blank chain, used for lavfi-complex)
-void reinit_video_chain_src(struct MPContext *mpctx, struct track *track)
+static bool reinit_video_chain_internal(struct MPContext *mpctx,
+                                        struct track *track, bool probing,
+                                        int64_t retained_video_wid)
 {
     mp_assert(!mpctx->vo_chain);
 
@@ -463,7 +470,7 @@ void reinit_video_chain_src(struct MPContext *mpctx, struct track *track)
         android_video_output_needs_surface(mpctx))
     {
         reset_video_state(mpctx);
-        return;
+        return false;
     }
 
     bool use_dovi_direct =
@@ -479,8 +486,11 @@ void reinit_video_chain_src(struct MPContext *mpctx, struct track *track)
         is_android_opengl_output_active(mpctx) &&
         mpctx->video_out->extra.prefer_hdr_output != prefer_hdr_output;
 #endif
-    if (replace_video_out)
+    if (replace_video_out) {
+        if (!retained_video_wid && track)
+            retained_video_wid = get_android_retained_video_wid(mpctx);
         uninit_video_out(mpctx);
+    }
 
     if (!mpctx->video_out) {
         struct vo_extra ex = {
@@ -490,6 +500,7 @@ void reinit_video_chain_src(struct MPContext *mpctx, struct track *track)
             .wakeup_cb = mp_wakeup_core_cb,
             .wakeup_ctx = mpctx,
             .prefer_hdr_output = prefer_hdr_output,
+            .retained_video_wid = retained_video_wid,
         };
         if (use_dovi_direct) {
             MP_INFO(mpctx, "Using direct MediaCodec Surface output for "
@@ -507,9 +518,11 @@ void reinit_video_chain_src(struct MPContext *mpctx, struct track *track)
             mpctx->video_out = init_best_video_out(mpctx->global, &ex);
         }
         if (!mpctx->video_out) {
-            MP_FATAL(mpctx, "Error opening/initializing "
-                    "the selected video_out (--vo) device.\n");
-            mpctx->error_playing = MPV_ERROR_VO_INIT_FAILED;
+            if (!probing) {
+                MP_FATAL(mpctx, "Error opening/initializing "
+                         "the selected video_out (--vo) device.\n");
+                mpctx->error_playing = MPV_ERROR_VO_INIT_FAILED;
+            }
             goto err_out;
         }
         mpctx->mouse_cursor_visible = true;
@@ -549,10 +562,43 @@ void reinit_video_chain_src(struct MPContext *mpctx, struct track *track)
     reset_video_state(mpctx);
     term_osd_clear_subs(mpctx);
 
-    return;
+    return true;
 
 err_out:
-    handle_video_init_failure(mpctx, track);
+    if (probing) {
+        // The caller still owns the selected track while restoring its VO.
+        uninit_video_out(mpctx);
+    } else {
+        handle_video_init_failure(mpctx, track);
+    }
+    return false;
+}
+
+void reinit_video_chain(struct MPContext *mpctx)
+{
+    reinit_video_chain_with_retained_frame(mpctx, 0);
+}
+
+void reinit_video_chain_with_retained_frame(struct MPContext *mpctx,
+                                            int64_t retained_video_wid)
+{
+    struct track *track = mpctx->current_track[0][STREAM_VIDEO];
+    if (!track || !track->stream) {
+        error_on_track(mpctx, track);
+        return;
+    }
+    reinit_video_chain_internal(mpctx, track, false, retained_video_wid);
+}
+
+void reinit_video_chain_src(struct MPContext *mpctx, struct track *track)
+{
+    reinit_video_chain_internal(mpctx, track, false, 0);
+}
+
+bool try_reinit_video_chain(struct MPContext *mpctx, struct track *track,
+                            int64_t retained_video_wid)
+{
+    return reinit_video_chain_internal(mpctx, track, true, retained_video_wid);
 }
 
 // Try to refresh the video by doing a precise seek to the currently displayed
